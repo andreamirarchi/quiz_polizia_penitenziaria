@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8" />
+  <title>Quiz Educazione Civica - caricamento automatico</title>
+  <style>
+    /* Reset base */
+    *, *::before, *::after {
+      box-sizing: border-box;
+    }
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      max-width: 800px;
+      margin: 2rem auto;
+      padding: 1rem 1.5rem;
+      background: #f9fafb;
+      color: #333;
+      line-height: 1.5;
+      user-select: none;
+    }
+    h1 {
+      text-align: center;
+      font-weight: 700;
+      color: #1a202c;
+      margin-bottom: 2rem;
+      text-shadow: 0 1px 2px rgba(0,0,0,0.1);
+    }
+    .nav {
+      display: flex;
+      justify-content: center;
+      gap: 1rem;
+      margin-bottom: 2rem;
+    }
+    .nav button {
+      background-color: #2b6cb0;
+      border: none;
+      padding: 0.6rem 1.3rem;
+      font-size: 1rem;
+      border-radius: 6px;
+      color: white;
+      cursor: pointer;
+      box-shadow: 0 4px 8px rgba(43,108,176,0.3);
+      transition: background-color 0.25s ease, box-shadow 0.25s ease;
+      user-select: none;
+    }
+    .nav button:hover:not(:disabled) {
+      background-color: #2c5282;
+      box-shadow: 0 6px 12px rgba(44,82,130,0.5);
+    }
+    .nav button:disabled {
+      background-color: #a0aec0;
+      cursor: not-allowed;
+      box-shadow: none;
+    }
+    #quiz-container, #stats-container {
+      background: white;
+      padding: 1.6rem 2rem;
+      border-radius: 10px;
+      box-shadow: 0 8px 20px rgba(0,0,0,0.1);
+      max-width: 100%;
+      margin-bottom: 2rem;
+    }
+    #quiz-container {
+      display: none;
+    }
+    #stats-container {
+      display: none;
+    }
+    #domanda-box {
+      font-size: 1.2rem;
+      font-weight: 600;
+      margin-bottom: 1.2rem;
+      color: #2d3748;
+    }
+    #risposte-box button {
+      display: block;
+      width: 100%;
+      margin-bottom: 0.7rem;
+      padding: 0.65rem 1rem;
+      font-size: 1rem;
+      border-radius: 8px;
+      border: 2px solid #cbd5e0;
+      background-color: #edf2f7;
+      cursor: pointer;
+      text-align: left;
+      transition: background-color 0.3s ease, border-color 0.3s ease;
+      user-select: none;
+    }
+    #risposte-box button:hover:not(:disabled) {
+      background-color: #bee3f8;
+      border-color: #4299e1;
+    }
+    #risposte-box button:disabled {
+      cursor: default;
+      opacity: 0.6;
+    }
+    .risultato {
+      margin-top: 1rem;
+      font-weight: 700;
+      font-size: 1.1rem;
+      text-align: center;
+      padding: 0.7rem;
+      border-radius: 8px;
+      user-select: none;
+    }
+    .corretta {
+      background-color: #c6f6d5;
+      color: #276749;
+      border: 2px solid #48bb78;
+      box-shadow: 0 0 10px #48bb78aa;
+    }
+    .sbagliata {
+      background-color: #fed7d7;
+      color: #9b2c2c;
+      border: 2px solid #f56565;
+      box-shadow: 0 0 10px #f56565aa;
+    }
+    ul {
+      padding-left: 1.2rem;
+      max-height: 220px;
+      overflow-y: auto;
+      margin-top: 0.5rem;
+    }
+    ul li {
+      margin-bottom: 0.4rem;
+      font-size: 0.95rem;
+      color: #4a5568;
+    }
+  </style>
+</head>
+<body>
+  <h1>Quiz Educazione Civica</h1>
+
+  <div class="nav" id="nav-buttons" style="display:none;">
+    <button id="start-quiz">Inizia Quiz</button>
+    <button id="view-stats">Visualizza Statistiche</button>
+  </div>
+
+  <div id="quiz-container" aria-live="polite" aria-atomic="true">
+    <div id="domanda-box" tabindex="0"></div>
+    <div id="risposte-box"></div>
+  </div>
+
+  <div id="stats-container">
+    <div id="stats-box" tabindex="0"></div>
+    <button id="back-quiz">Torna al Quiz</button>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
+  <script>
+    let risposteCorrette = [];
+    let domande = [];
+    let current = 0;
+    let corrette = 0;
+    const storico = [];
+
+    const quizDiv = document.getElementById('quiz-container');
+    const statsDiv = document.getElementById('stats-container');
+    const domandaBox = document.getElementById('domanda-box');
+    const risposteBox = document.getElementById('risposte-box');
+    const statsBox = document.getElementById('stats-box');
+    const navButtons = document.getElementById('nav-buttons');
+    const startBtn = document.getElementById('start-quiz');
+
+    // Carica JSON e PDF automaticamente all'avvio e ripristina stato da localStorage se presente
+    window.onload = async () => {
+      try {
+        // Carica JSON risposte
+        const resJson = await fetch('risposte_corrette.json');
+        if (!resJson.ok) throw new Error('Errore caricamento JSON');
+        risposteCorrette = await resJson.json();
+
+        // Carica PDF domande
+        const resPdf = await fetch('dap_3246_allievi_agenti_10gen2025_banca_dati_ed_civica-2.pdf');
+        if (!resPdf.ok) throw new Error('Errore caricamento PDF');
+        const arrayBuffer = await resPdf.arrayBuffer();
+        const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+
+        let fullText = '';
+        for (let i = 1; i <= pdf.numPages; i++) {
+          const page = await pdf.getPage(i);
+          const content = await page.getTextContent();
+          const strings = content.items.map(item => item.str);
+          fullText += strings.join(' ') + '\n';
+        }
+
+        parseDomande(fullText);
+
+        // Carica stato da localStorage
+        const saved = localStorage.getItem('quizStats');
+        if (saved) {
+          const stato = JSON.parse(saved);
+          current = stato.current || 0;
+          corrette = stato.corrette || 0;
+          storico.push(...(stato.storico || []));
+          startBtn.textContent = "Continua Quiz";
+        }
+
+        navButtons.style.display = 'flex'; // Mostra i pulsanti solo dopo caricamento
+      } catch (e) {
+        alert("Errore nel caricamento: " + e.message);
+        console.error(e);
+      }
+    };
+
+    function parseDomande(text) {
+      // Usa regex originale per mantenere formato esatto
+      const blocchi = text.match(/\d{4}\.\s*[\s\S]*?(?=\d{4}\.|$)/g) || [];
+      domande = blocchi.map(b => {
+        const numero = (b.match(/^(\d{4})\./) || [])[1];
+        const testo = (b.match(/\d{4}\.\s*([\s\S]*?)A\)/) || [])[1]?.trim() || "";
+        const m = b.match(/A\)\s*([^\n]+)\n?B\)\s*([^\n]+)\n?C\)\s*([^\n]+)\n?D\)\s*([^\n]+)/);
+        const opzioni = m ? { A: m[1].trim(), B: m[2].trim(), C: m[3].trim(), D: m[4].trim() } : {};
+        const resp = risposteCorrette.find(r => String(r.numero_domanda) === String(numero));
+        return { numero, testo, opzioni, corretta: resp ? resp.risposta_corretta : null };
+      }).filter(d => d.testo && Object.keys(d.opzioni).length);
+    }
+
+    startBtn.onclick = () => {
+      if (domande.length === 0 || risposteCorrette.length === 0) {
+        alert("Domande o risposte non caricate correttamente.");
+        return;
+      }
+      quizDiv.style.display = 'block';
+      statsDiv.style.display = 'none';
+      renderCurrent();
+    };
+
+    document.getElementById('view-stats').onclick = showStats;
+
+    document.getElementById('back-quiz').onclick = () => {
+      statsDiv.style.display = 'none';
+      quizDiv.style.display = 'block';
+      domandaBox.focus();
+    };
+
+    function renderCurrent() {
+      if (current >= domande.length) {
+        alert("Hai terminato il quiz!");
+        showStats();
+        return;
+      }
+      const d = domande[current];
+      domandaBox.innerHTML = `<strong>${d.numero}.</strong> ${d.testo}`;
+      risposteBox.innerHTML = '';
+      Object.entries(d.opzioni).forEach(([lettera, testo]) => {
+        const btn = document.createElement('button');
+        btn.textContent = `${lettera}) ${testo}`;
+        btn.onclick = () => selectAnswer(lettera, d);
+        risposteBox.appendChild(btn);
+      });
+      domandaBox.focus();
+    }
+
+    function selectAnswer(lettera, domanda) {
+      const corretta = domanda.corretta;
+      const ok = corretta === lettera;
+      if (ok) corrette++;
+      storico.push({ numero: domanda.numero, scelta: lettera, corretta, ok });
+
+      saveState();
+
+      const mess = document.createElement('div');
+      mess.className = 'risultato ' + (ok ? 'corretta' : 'sbagliata');
+      mess.textContent = ok ? 'Risposta corretta!' : (corretta ? `Risposta sbagliata. Corretta: ${corretta}` : 'Risposta selezionata');
+      risposteBox.appendChild(mess);
+
+      risposteBox.querySelectorAll('button').forEach(b => b.disabled = true);
+
+      setTimeout(() => {
+        current++;
+        renderCurrent();
+      }, 1200);
+    }
+
+    function saveState() {
+      localStorage.setItem('quizStats', JSON.stringify({ current, corrette, storico }));
+    }
+
+    function showStats() {
+      quizDiv.style.display = 'none';
+      statsDiv.style.display = 'block';
+
+      const totDomande = domande.length;
+      const totRisposte = storico.length;
+      const errate = totDomande - corrette;
+      const media = totDomande ? ((corrette / totDomande) * 100).toFixed(1) : '0.0';
+
+      let html = `<p>Hai risposto a <strong>${totRisposte}</strong> domande su <strong>${totDomande}</strong> totali.</p>`;
+      html += `<p>✅ Corrette: <strong>${corrette}</strong>, ‼️ Non viste: <strong>${errate}</strong></p>`;
+      html += `<p><strong>Media educazione civica:</strong> ${media}%</p>`;
+
+      const errori = storico.filter(r => !r.ok);
+      if (errori.length) {
+        html += `<h3>Domande sbagliate:</h3><ul>`;
+        errori.forEach(e => {
+          html += `<li>Domanda ${e.numero}: hai scelto <em>${e.scelta}</em>, corretta: <em>${e.corretta || '-'}</em></li>`;
+        });
+        html += `</ul>`;
+      }
+
+      statsBox.innerHTML = html;
+      statsBox.focus();
+    }
+  </script>
+</body>
+</html>
